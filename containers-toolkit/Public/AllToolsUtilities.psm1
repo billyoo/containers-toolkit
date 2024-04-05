@@ -8,6 +8,9 @@
 
 $ModuleParentPath = Split-Path -Parent $PSScriptRoot
 Import-Module -Name "$ModuleParentPath\Private\CommonToolUtilities.psm1" -Force
+Import-Module -Name "$ModuleParentPath\Public\ContainerdTools.psm1" -Force
+Import-Module -Name "$ModuleParentPath\Public\BuildkitTools.psm1" -Force
+Import-Module -Name "$ModuleParentPath\Public\NerdctlTools.psm1" -Force
 
 
 function Show-ContainerTools {
@@ -68,7 +71,11 @@ function Install-ContainerTools {
 
         [Switch]
         [parameter(HelpMessage = "Force install the tools even if they already exists at the specified path")]
-        $Force
+        $Force,
+
+        [switch]
+        [parameter(HelpMessage = "Register and Start Conatinerd and Buildkitd services")]
+        $Setup
     )
 
     begin {
@@ -153,10 +160,28 @@ function Install-ContainerTools {
                     Install-RequiredFeature @InstallParams -Cleanup $CleanUp
 
                     $completedInstalls += $params.Feature
+
+                    if ($Setup) {
+                        $SetupParams = @{
+                            force = $force
+                            feature = $params.Feature
+                            installPath = $params.InstallPath
+                        }
+                        Register-Service @SetupParams
+                    }
                 }
                 catch {
                     Write-Error "Installation failed for $($params.feature). $_"
                 }
+            }
+
+            if ($Setup) {
+                Initialize-NatNetwork
+            }else {
+                Write-Information -Tags "Instructions" -MessageData (
+                    "To start containderd service, run 'Start-Service containerd' or 'Start-ContainerdService',",
+                    "To start buildkitd service, run 'Start-Service buildkitd' or 'Start-BuildkitdService'"
+                )
             }
 
             Write-Information -MessageData "$($completedInstalls -join ', ') installed successfully." -Tags "Installation" -InformationAction Continue
@@ -264,6 +289,30 @@ function getDaemonStatus($daemon) {
     }
 
     return $daemonStatus.Status
+}
+
+
+function Register-Service {
+    param (
+        [bool]$force,
+        [string]$feature,
+        [string]$nstallPath
+    )
+
+    switch ($feature) {
+        "Containerd" {
+            $SetupParams = @{
+                ContainerdPath = $nstallPath
+            }
+            Register-ContainerdService @SetupParams -Start -Force:$force
+        }
+        "BuildKit" {
+            $SetupParams = @{
+                BuildKitPath = $nstallPath
+            }
+            Register-Buildkitd @SetupParams -Start -Force:$force
+        }
+    }
 }
 
 Export-ModuleMember -Function Show-ContainerTools
